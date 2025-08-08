@@ -1,0 +1,92 @@
+trigger:
+  branches:
+    include:
+      - main # Trigger on the main branch, you can change this
+
+# Define stages for the pipeline
+stages:
+  # Stage 1: Build the application
+  - stage: Build
+    displayName: 'Build Application'
+    jobs:
+      - job: Build
+        displayName: 'Build .NET Application'
+        pool:
+          vmImage: 'windows-latest' # Use a VM with Windows for .NET build
+        steps:
+          # Step 1: Check out code
+          - task: Checkout@1
+            displayName: 'Checkout source code'
+
+          # Step 2: Setup .NET Core SDK
+          - task: UseDotNet@2
+            displayName: 'Install .NET Core SDK'
+            inputs:
+              packageType: 'sdk'
+              version: '6.x' # Use .NET Core 6.x or change as per your app
+
+          # Step 3: Restore dependencies
+          - task: DotNetCoreCLI@2
+            displayName: 'Restore .NET dependencies'
+            inputs:
+              command: 'restore'
+              projects: '*/.csproj'
+
+          # Step 4: Build the application
+          - task: DotNetCoreCLI@2
+            displayName: 'Build .NET Project'
+            inputs:
+              command: 'build'
+              projects: '*/.csproj'
+              arguments: '--configuration Release'
+
+          # Step 5: Run unit tests (optional)
+          - task: DotNetCoreCLI@2
+            displayName: 'Run Unit Tests'
+            inputs:
+              command: 'test'
+              projects: '*/*Tests/.csproj'
+
+          # Step 6: Publish the build artifact
+          - task: DotNetCoreCLI@2
+            displayName: 'Publish build artifacts'
+            inputs:
+              command: 'publish'
+              projects: '*/.csproj'
+              arguments: '--configuration Release --output $(Build.ArtifactStagingDirectory)'
+
+          # Step 7: Upload artifact to Azure Pipelines
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Artifact'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)'
+              artifact: 'drop'
+
+  # Stage 2: Deploy the application
+  - stage: Deploy
+    displayName: 'Deploy to Azure Web App'
+    dependsOn: Build
+    jobs:
+      - deployment: Deploy
+        displayName: 'Deploy to Azure App Service'
+        environment: 'production'
+        pool:
+          vmImage: 'windows-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # Step 1: Download the artifact from the build stage
+                - task: DownloadPipelineArtifact@2
+                  displayName: 'Download Build Artifact'
+                  inputs:
+                    artifact: 'drop'
+
+                # Step 2: Deploy to Azure Web App
+                - task: AzureWebApp@1
+                  displayName: 'Deploy to cicd'
+                  inputs:
+                    azureSubscription: '<your-azure-service-connection>'
+                    appType: 'webApp'
+                    appName: 'Super Dr'
+                    package: '$(Pipeline.Workspace)/drop'
